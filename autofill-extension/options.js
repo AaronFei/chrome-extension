@@ -351,6 +351,16 @@ $("syncOff").addEventListener("click", async () => {
 
 syncRender();
 
+// 打開管理頁就順手拉一次 —— 不然你會看著一份可能是十分鐘前的清單。
+// 只有距離上次成功超過 30 秒才拉，免得一直開關頁面在打 GitHub。
+(async () => {
+  const { sync = {} } = await chrome.storage.local.get("sync");
+  if (!sync.enabled) return;
+  if (Date.now() - (sync.lastOk || 0) < 30000) return;
+  const r = await chrome.runtime.sendMessage({ cmd: "syncNow", reason: "options-open" }).catch(() => null);
+  if (r && r.ok) { await syncRender(); await render(); }
+})();
+
 /* ===================== 備份與轉移（加密檔） ===================== */
 const loadTombs = async () => (await chrome.storage.local.get("tombstones")).tombstones || [];
 
@@ -466,6 +476,8 @@ $("impApply").addEventListener("click", async () => {
 /* ===================== 裝置金鑰（發卡） ===================== */
 const GH_ORIGINS = ["https://api.github.com/*", "https://gist.githubusercontent.com/*"];
 
+let myPub = "", myFp = "";
+
 async function idRender() {
   const me = await chrome.runtime.sendMessage({ cmd: "identity" }).catch((e) => ({ ok: false, error: e.message }));
   if (!me || !me.ok) {
@@ -473,6 +485,7 @@ async function idRender() {
     $("issueBox").hidden = $("claimBox").hidden = true;
     return;
   }
+  myPub = me.pub; myFp = me.fp;
   $("myFp").textContent = me.fp;
   $("myPub").value = me.pub;
 
@@ -501,6 +514,12 @@ $("peerPub").addEventListener("input", async () => {
 $("issueGo").addEventListener("click", async () => {
   const pub = $("peerPub").value.trim();
   if (!pub) { $("idStat").innerHTML = '<span class="err">先貼上對方的公鑰。</span>'; return; }
+  // 貼到自己的公鑰是最容易犯的錯，而且發出來的卡另一台解不開，事後很難看出哪裡錯
+  if (pub === myPub) {
+    $("idStat").innerHTML = `<span class="err">這是<b>這台機器自己</b>的公鑰（${esc(myFp)}）——
+      要貼的是另一台管理頁上顯示的那一串。</span>`;
+    return;
+  }
   $("issueGo").disabled = true;
   $("idStat").textContent = "封裝並寫進 gist 中…";
   const r = await chrome.runtime.sendMessage({ cmd: "enrollIssue", args: { pub } })
@@ -508,7 +527,9 @@ $("issueGo").addEventListener("click", async () => {
   $("issueGo").disabled = false;
   if (!r?.ok) { $("idStat").innerHTML = `<span class="err">${esc(r?.error || "失敗")}</span>`; return; }
   $("idStat").innerHTML =
-    `<span class="ok">已發卡給 ${esc(r.fp)} ✓</span>　·　發卡檔 24 小時後自己清掉`;
+    `<span class="ok">已發卡給 ${esc(r.fp)} ✓</span> —— 這串指紋要跟<b>那台畫面上顯示的</b>一樣。<br>` +
+    `到那台的管理頁 →「裝置金鑰（發卡）」→ 下半部的「<b>接收發卡</b>」欄位貼上下面這個網址 → 按「接上」。<br>` +
+    `（「接收發卡」只會出現在還沒接上同步的機器上，所以這台看不到它。）發卡檔 24 小時後自己清掉。`;
   if (r.rawUrl) {
     $("issueUrl").value = r.rawUrl;
     $("issueUrlBox").hidden = false;

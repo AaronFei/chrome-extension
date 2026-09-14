@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Auto Login",
-  "version": "2.9.0",
+  "version": "2.9.2",
   "description": "在登入頁點三下就設定完成，之後自動填入帳密並送出；設定可經 GitHub Gist 端對端加密同步；並在頁面上提供 #ai-auth-state 狀態節點供自動化讀取。",
   "permissions": [
     "storage",
