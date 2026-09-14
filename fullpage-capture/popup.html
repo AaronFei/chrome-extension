@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>整頁截圖</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111827; --mut:#6b7280; --line:#e5e7eb; --acc:#2563eb; --accfg:#fff; --card:#f9fafb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#18181b; --fg:#f4f4f5; --mut:#a1a1aa; --line:#3f3f46; --acc:#3b82f6; --card:#232327; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; width:300px; padding:14px; background:var(--bg); color:var(--fg);
+         font:13px/1.5 -apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif; }
+  h1 { margin:0 0 10px; font-size:14px; font-weight:600; }
+  button.go { width:100%; padding:10px; border:0; border-radius:8px; background:var(--acc); color:#fff;
+              font-size:14px; font-weight:600; cursor:pointer; }
+  button.go:disabled { opacity:.55; cursor:default; }
+  .status { margin-top:10px; min-height:18px; font-size:12px; color:var(--mut); }
+  .bar { height:4px; border-radius:2px; background:var(--line); overflow:hidden; margin-top:8px; display:none; }
+  .bar > i { display:block; height:100%; width:0; background:var(--acc); transition:width .15s; }
+  fieldset { margin:14px 0 0; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+  legend { padding:0 4px; font-size:11px; color:var(--mut); }
+  label.row { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  select { flex:1; padding:4px 6px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  .hint { margin-top:10px; font-size:11px; color:var(--mut); }
+  .err { color:#dc2626; }
+</style>
+</head>
+<body>
+  <h1>整頁截圖</h1>
+  <button class="go" id="go">擷取整頁</button>
+  <div class="bar" id="bar"><i></i></div>
+  <div class="status" id="status"></div>
+
+  <fieldset>
+    <legend>設定</legend>
+    <label class="row"><span>完成後</span>
+      <select id="afterCapture">
+        <option value="preview">開預覽分頁</option>
+        <option value="png">直接下載 PNG</option>
+        <option value="pdf">直接存成 PDF</option>
+        <option value="clipboard">複製到剪貼簿</option>
+      </select>
+    </label>
+    <label class="row"><input type="checkbox" id="hideFixed"><span>隱藏固定/黏性元素（避免重複 header）</span></label>
+    <label class="row"><input type="checkbox" id="preScroll"><span>先捲一遍觸發 lazy-load</span></label>
+    <label class="row"><span>每屏等待</span>
+      <select id="settleMs">
+        <option value="120">快 120ms</option>
+        <option value="250">標準 250ms</option>
+        <option value="600">慢 600ms</option>
+        <option value="1200">很慢 1200ms</option>
+      </select>
+    </label>
+  </fieldset>
+  <div class="hint">快捷鍵 ⌘⇧Y / Ctrl+Shift+Y。瀏覽器內建頁面（chrome://）無法截圖。</div>
+  <script src="popup.js"></script>
+</body>
+</html>
