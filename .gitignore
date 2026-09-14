@@ -1,0 +1,10 @@
+# 舊版的明文帳密檔（匯入 storage 之後就不需要了，絕對不要進 repo）
+credentials.js
+credentials.js.bak
+*.bak
+
+# Claude 產生的截圖／輸出
+Claude outputs/
+
+# macOS
+.DS_Store

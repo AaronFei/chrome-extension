@@ -1,0 +1,228 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Auto Login — 設定</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 780px; margin: 0 auto; padding: 28px 20px 60px;
+         font: 14px/1.65 -apple-system, "Noto Sans TC", system-ui, sans-serif;
+         color: #111827; background: #fff; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { color:#6b7280; font-size:13px; margin-bottom:18px; }
+  .bar { display:flex; align-items:center; justify-content:space-between; gap:10px;
+         margin-bottom:13px; font-size:12.5px; color:#6b7280; flex-wrap:wrap; }
+  .bar .acts { display:flex; gap:7px; }
+  .bar button { padding:4px 10px; font-size:12px; }
+  .card { border:1px solid #e5e7eb; border-radius:12px; padding:15px 17px; margin-bottom:13px; }
+  .card.dim { opacity:.62; }
+  .top { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .name { font-weight:600; font-size:15px; }
+  .host { font-family: ui-monospace, Menlo, monospace; font-size:11.5px; color:#6b7280; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; margin-left:7px; }
+  .on{background:#dcfce7;color:#166534} .off{background:#f3f4f6;color:#4b5563}
+  .need{background:#fef3c7;color:#92400e}
+
+  /* 啟用/停用開關 */
+  .swwrap { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+  .swlbl { font-size:12px; color:#6b7280; min-width:26px; text-align:right; }
+  .sw { position:relative; display:inline-block; width:40px; height:23px; cursor:pointer; flex:0 0 auto; }
+  .sw input { position:absolute; opacity:0; width:0; height:0; }
+  .sw .track { position:absolute; inset:0; border-radius:99px; background:#d1d5db;
+               transition:background .15s; }
+  .sw .track::after { content:""; position:absolute; top:3px; left:3px; width:17px; height:17px;
+               border-radius:50%; background:#fff; transition:transform .15s;
+               box-shadow:0 1px 2px rgba(0,0,0,.28); }
+  .sw input:checked + .track { background:#3b82f6; }
+  .sw input:checked + .track::after { transform:translateX(17px); }
+  .sw input:focus-visible + .track { outline:2px solid #3b82f6; outline-offset:2px; }
+
+  .grid { display:grid; grid-template-columns: 92px 1fr; gap:7px 12px; margin-top:13px; align-items:center; }
+  label { color:#6b7280; font-size:12.5px; }
+  input[type=text], input[type=password] { width:100%; padding:6px 9px; border:1px solid #d1d5db;
+        border-radius:7px; font-size:13px; font-family: ui-monospace, Menlo, monospace; }
+  .btns { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  button { padding:6px 13px; border-radius:8px; border:1px solid #d1d5db; background:#f9fafb;
+           font-size:13px; cursor:pointer; color:#111827; }
+  button.pri{background:#3b82f6;border-color:#3b82f6;color:#fff;font-weight:600}
+  button.dgr{background:#fff;border-color:#fca5a5;color:#b91c1c}
+  button:hover{filter:brightness(.97)}
+  details { margin-top:11px; } summary { cursor:pointer; color:#6b7280; font-size:12.5px; }
+  .empty { padding:34px; text-align:center; color:#6b7280; border:1px dashed #d1d5db; border-radius:12px; }
+  /* 雲端同步 */
+  .sync { margin-top:26px; border:1px solid #e5e7eb; border-radius:12px; padding:15px 17px; }
+  .sync h2 { font-size:15px; margin:0 0 3px; }
+  .sync .hint { color:#6b7280; font-size:12.5px; margin-bottom:12px; }
+  .sync .grid { grid-template-columns:104px 1fr; margin-top:0; }
+  .sync .stat { font-size:12.5px; margin-bottom:11px; }
+  .sync .err { color:#b91c1c; }
+  .sync .ok { color:#166534; }
+  .codebar { margin:0 0 14px; padding:10px 13px; border-radius:9px; font-size:12.5px;
+             background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a;
+             display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .codebar button { padding:4px 11px; font-size:12px; }
+  .chk { color:#111827; font-size:12.5px; display:flex; gap:7px; align-items:flex-start; }
+  .codebox { margin-top:12px; padding:11px 13px; border:1px solid #fca5a5; border-radius:9px; background:#fef2f2; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size:12px; }
+  .inline { display:flex; gap:7px; align-items:center; }
+  .inline input { flex:1; }
+  .note { margin-top:26px; padding:13px 15px; background:#fffbeb; border:1px solid #fde68a;
+          border-radius:10px; font-size:12.5px; color:#78350f; }
+  .note b { color:#78350f; }
+  @media (prefers-color-scheme: dark) {
+    body{background:#0f172a;color:#e2e8f0} .card{border-color:#334155}
+    input[type=text],input[type=password]{background:#1e293b;border-color:#475569;color:#e2e8f0}
+    button{background:#1e293b;border-color:#475569;color:#e2e8f0}
+    .empty{border-color:#334155;color:#94a3b8} .sync{border-color:#334155}
+    .codebar{background:#172554;border-color:#1e40af;color:#bfdbfe}
+    .chk{color:#e2e8f0} .codebox{background:#450a0a;border-color:#7f1d1d}
+    .sw .track{background:#475569}
+    .note{background:#422006;border-color:#854d0e;color:#fde68a} .note b{color:#fde68a}
+  }
+</style>
+<h1>Auto Login</h1>
+<div class="sub">要新增網站：開啟那個網站的登入頁，點瀏覽器右上角的 extension 圖示 →「設定這個網站」。<br>
+右上角的開關可以隨時把單一網站關掉（設定會留著，隨時再打開）。</div>
+<div id="codeBar" class="codebar" hidden></div>
+<div id="bar" class="bar" hidden>
+  <div id="count"></div>
+  <div class="acts">
+    <button data-all="on">全部啟用</button>
+    <button data-all="off">全部停用</button>
+  </div>
+</div>
+<div id="list"></div>
+<div class="sync">
+  <h2>雲端同步（GitHub Gist）</h2>
+  <div class="hint">設定在離開瀏覽器前就用 <b>AES-256-GCM</b> 加密，金鑰是隨機產生的、只存在你的機器上。
+    GitHub 只看得到一團密文，連你在哪些網站有帳號都看不到。</div>
+
+  <div id="syncStat" class="stat">讀取中…</div>
+
+  <div id="syncForm">
+    <div class="grid">
+      <label>PAT</label>
+      <input type="password" id="syncToken" placeholder="ghp_… / github_pat_…（classic token，只需要 gist 這一個 scope）">
+    </div>
+    <div class="btns"><button class="pri" id="syncGo">啟用同步</button></div>
+    <details id="joinBox">
+      <summary>已經有 gist 了？（第二台機器請用下面的「發卡」—— 一個字都不用打）</summary>
+      <div class="grid">
+        <label>gist id</label><input type="text" id="syncGist" placeholder="貼網址也行">
+        <label>救援片語</label>
+        <div class="inline"><input type="password" id="syncPass" placeholder="只有設過救援片語的 gist 走得通">
+          <button id="syncEye" type="button">看</button></div>
+      </div>
+      <div class="btns"><button id="joinGo">用救援片語接上</button></div>
+    </details>
+  </div>
+
+  <div id="syncOn" hidden>
+    <div class="btns">
+      <button class="pri" id="syncNow">立即同步</button>
+      <button id="syncCopy">複製 gist id</button>
+      <button id="rescueToggle">設定救援片語</button>
+      <button class="dgr" id="syncOff">停用同步（gist 保留）</button>
+    </div>
+    <div id="rescueBox" hidden>
+      <div class="grid">
+        <label>救援片語</label>
+        <div class="inline"><input type="password" id="rescuePass" class="mono" placeholder="至少 12 個字">
+          <button id="rescueGen" type="button">產生</button>
+          <button id="rescueEye" type="button">看</button></div>
+      </div>
+      <div class="hint" style="margin-top:8px"><b>選用。</b>所有機器都掛掉時，靠它 + PAT 把設定救回來。<br>
+        不設的話，gist 上<b>沒有任何可以拿去離線暴力破解的東西</b> —— 這是它真正的代價。設了就存進密碼管理器。</div>
+      <div class="btns"><button class="pri" id="rescueSave">存進 gist</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="sync">
+  <h2>裝置金鑰（發卡）</h2>
+  <div class="hint">每台機器自己產一把<b>匯不出去的私鑰</b>。舊機器把憑證用新機器的<b>公鑰</b>封起來丟進同一個 gist，
+    只有那台的私鑰解得開 —— 所以公鑰和 gist 網址都可以隨便貼，<b>全程不用搬任何秘密</b>。</div>
+
+  <div class="grid">
+    <label>這台機器</label>
+    <div class="inline"><b id="myFp" class="mono">…</b>
+      <button id="myCopy">複製公鑰</button></div>
+    <label>公鑰</label><input type="text" id="myPub" class="mono" readonly>
+  </div>
+
+  <div id="issueBox" hidden>
+    <hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0">
+    <div class="grid">
+      <label>授權另一台</label><input type="text" id="peerPub" class="mono" placeholder="貼上那台機器管理頁顯示的公鑰">
+      <label>對方指紋</label><div class="inline"><b id="peerFp" class="mono">—</b>
+        <span class="hint" style="margin:0">要跟那台畫面上顯示的完全一樣才按發卡</span></div>
+    </div>
+    <div class="btns"><button class="pri" id="issueGo">發卡給這台</button></div>
+    <div id="issueUrlBox" hidden>
+      <div class="grid"><label>給對方的網址</label>
+        <div class="inline"><input type="text" id="issueUrl" class="mono" readonly>
+          <button id="issueUrlCopy">複製</button></div></div>
+      <div class="hint" style="margin-top:6px">這個網址不是秘密 —— 裡面的東西只有那台機器的私鑰解得開。</div>
+    </div>
+  </div>
+
+  <div id="claimBox" hidden>
+    <hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0">
+    <div class="grid">
+      <label>接收發卡</label><input type="text" id="claimGist" placeholder="舊機器給的網址，或 gist id">
+    </div>
+    <details><summary>GitHub 讀不到的話：直接貼發卡檔內容</summary>
+      <div class="grid"><label>發卡檔</label><input type="text" id="claimBlob" class="mono" placeholder='{"v":1,"type":"autologin-enroll",…}'></div>
+    </details>
+    <div class="btns"><button class="pri" id="claimGo">接上</button></div>
+  </div>
+
+  <div id="idStat" class="stat" style="margin-top:11px"></div>
+</div>
+
+<div class="sync">
+  <h2>備份與轉移（加密檔）</h2>
+  <div class="hint">匯出一個加密檔 + 一組<b>一次性轉移碼</b>。檔案走 AirDrop / USB / 雲端都行，
+    碼你自己打過去 —— 兩條路徑分開，任一條外洩都解不開。<br>
+    <b>沒辦法做成「只有 extension 解得開」</b>：程式碼就躺在你硬碟上，寫死的密鑰對拿得到檔案的人等於公開。
+    所以鑰匙跟著你走，不跟著程式碼走。</div>
+
+  <div class="grid">
+    <label>匯出</label>
+    <div>
+      <label class="chk"><input type="checkbox" id="expCreds" checked>
+        一併帶上同步憑證（PAT + gist id + 金鑰）—— 新機器匯入後直接接上自動同步</label>
+    </div>
+  </div>
+  <div class="btns"><button class="pri" id="expGo">匯出加密檔</button></div>
+
+  <div id="expOut" hidden>
+    <div class="codebox">
+      <div class="err"><b>轉移碼只顯示這一次</b> —— 現在就複製走，關掉這頁就沒了（沒有備份，弄丟只能重匯）。</div>
+      <div class="inline" style="margin-top:8px">
+        <input type="text" id="expCode" class="mono" readonly>
+        <button id="expCopy">複製</button>
+      </div>
+    </div>
+  </div>
+
+  <hr style="border:0;border-top:1px solid #e5e7eb;margin:18px 0">
+
+  <div class="grid">
+    <label>匯入</label><input type="file" id="impFile" accept=".json,application/json">
+    <label>轉移碼</label>
+    <div class="inline"><input type="password" id="impCode" class="mono" placeholder="匯出那台顯示的那一串">
+      <button id="impEye">看</button></div>
+  </div>
+  <div class="btns"><button id="impRead">讀取並預覽</button></div>
+  <div id="impStat" class="stat" style="margin-top:11px"></div>
+  <div id="impApplyBox" class="btns" hidden><button class="pri" id="impApply">確認套用</button></div>
+</div>
+
+<div class="note">
+  <b>關於密碼保存：</b>帳密存在 <code>chrome.storage.local</code>，只有這個 extension 讀得到，網頁讀不到，
+  也不會同步到雲端。但它<b>沒有加密</b>——能拿到你電腦帳號的人就能讀到。
+  請不要用在網銀、主要 email 這類高風險帳號。
+</div>
+<script src="lib/crypto.js"></script>
+<script src="lib/identity.js"></script>
+<script src="lib/transfer.js"></script>
+<script src="options.js"></script>
