@@ -8,3 +8,6 @@
 
 # Claude 產生的截圖／輸出
 Claude outputs/
+
+# Chrome 載入未封裝項目時產生的
+_metadata/
