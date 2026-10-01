@@ -175,8 +175,21 @@
   // ---------- 填帳密並儲存 ----------
   const showForm = async () => {
     box(null);
-    const { sites = [] } = await chrome.storage.local.get("sites");
-    const existing = sites.find((s) => s.host?.toLowerCase() === location.host.toLowerCase());
+    // 帳密由 background 保管（開了 passkey 鎖時只在它的記憶體裡），這裡只拿這個網域的那一筆
+    const got = await chrome.runtime.sendMessage({ cmd: "pickerLoad" }).catch((e) => ({ ok: false, error: e.message }));
+    if (!got || !got.ok || got.locked) {
+      bd.innerHTML = got && got.locked
+        ? `<div class="step">🔒 Auto Login 已鎖定</div>
+           <div class="sub">先解鎖才能新增或修改設定</div>
+           <div class="btns"><button id="cancel">取消</button><button id="ul" class="pri">解鎖</button></div>`
+        : `<div class="step">⚠️ 讀不到設定</div><div class="sub">${esc((got && got.error) || "background 沒有回應")}</div>
+           <div class="btns"><button id="cancel">關閉</button></div>`;
+      bd.querySelector("#cancel").onclick = cleanup;
+      const ul = bd.querySelector("#ul");
+      if (ul) ul.onclick = () => { chrome.runtime.sendMessage({ cmd: "openUnlock", reason: "設定這個網站" }); cleanup(); };
+      return;
+    }
+    const { existing, grpN } = got;
 
     bd.innerHTML = `
       <div class="row"><span class="k">網域</span><span class="v">${esc(location.host)}</span></div>
@@ -191,18 +204,21 @@
         <span>填完自動按登入</span>
       </label>
       <div class="btns"><button id="cancel">取消</button><button id="save" class="pri">儲存</button></div>
-      <div class="hint">${existing ? "這個網域已經有設定了，儲存會覆蓋掉。" : "儲存後重新整理這一頁就會自動登入。"}</div>`;
+      <div class="hint">${existing ? "這個網域已經有設定了，儲存會覆蓋掉。" : "儲存後重新整理這一頁就會自動登入。"}</div>
+      ${grpN > 1 ? `<div class="hint">這個網站屬於共用組「${esc(existing.credGroup)}」—— 改帳密會一起套用到同組 ${grpN} 個網站。</div>` : ""}`;
 
     bd.querySelector("#cancel").onclick = cleanup;
     bd.querySelector("#u").focus();
 
     bd.querySelector("#save").onclick = async () => {
       const rec = {
+        // 先帶上舊設定，進階欄位（errorSel、idleMs、urlContains、credGroup…）才不會被洗掉
+        ...(existing || {}),
         id: existing?.id || (Math.random().toString(36).slice(2, 10) + Date.now().toString(36)),
         label: bd.querySelector("#label").value.trim() || location.host,
         host: location.host,
         pattern: `*://${location.host}/*`,
-        urlContains: "",
+        urlContains: existing?.urlContains || "",
         username: bd.querySelector("#u").value,
         password: bd.querySelector("#p").value,
         userSel: sel.userSel, passSel: sel.passSel, submitSel: sel.submitSel,
@@ -212,12 +228,15 @@
         enabled: true,
         updatedAt: Date.now(),
       };
-      const next = sites.filter((s) => s.id !== rec.id);
-      next.push(rec);
-      await chrome.storage.local.set({ sites: next });
-      // 等 background 真的把 content script 註冊好，不要 fire-and-forget
+      // 共用組的連動、寫入、重新註冊都在 background 做（它才拿得到整份設定）
       let synced = null;
-      try { synced = await chrome.runtime.sendMessage({ cmd: "sync" }); } catch {}
+      try { synced = await chrome.runtime.sendMessage({ cmd: "pickerSave", rec }); } catch {}
+      if (synced && !synced.ok) {
+        bd.innerHTML = `<div class="step">⚠️ 沒有儲存</div><div class="sub">${esc(synced.error || "")}</div>
+          <div class="btns"><button id="rl">關閉</button></div>`;
+        bd.querySelector("#rl").onclick = cleanup;
+        return;
+      }
       const live = !!synced?.patterns?.some((p) => p.includes(location.host));
 
       bd.innerHTML = live

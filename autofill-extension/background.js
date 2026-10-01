@@ -7,12 +7,20 @@
 // 舊版設定檔（如果還在的話）。匯入完就可以刪掉這個檔。
 try { importScripts("credentials.js"); } catch (e) { /* 沒有就算了 */ }
 
-importScripts("lib/crypto.js", "lib/identity.js", "lib/sync.js");
+importScripts("lib/crypto.js", "lib/vault.js", "lib/groups.js", "lib/identity.js", "lib/sync.js");
+
+// sites / tombstones / sync 一律經過 STORE：沒開鎖 = storage.local，開了鎖 = 記憶體裡的工作副本 + 密文寫回
+const STORE = AL_VAULT.store;
 
 const SCRIPT_ID = "autologin";
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const loadSites = async () => (await chrome.storage.local.get("sites")).sites || [];
+const loadSites = async () => (await STORE.get("sites")).sites || [];
+// 鎖著的時候還是要知道「有哪些網域」才能註冊 content script —— 用不含帳密的 siteIndex
+const loadSitesOrIndex = async () => {
+  try { return await loadSites(); }
+  catch (e) { if (e.locked) return AL_VAULT.siteIndex(); throw e; }
+};
 
 // ---------- 從舊的 credentials.js 匯入 ----------
 function fromLegacy() {
@@ -47,13 +55,14 @@ function fromLegacy() {
 // 舊資料可能存成 https://host/*，統一成 *://host/*，
 // 否則 permissions.contains() 會比不中
 async function normalizePatterns() {
+  if ((await AL_VAULT.state()) === "locked") return AL_VAULT.siteIndex();
   const sites = await loadSites();
   let changed = false;
   for (const s of sites) {
     const want = s.host ? `*://${s.host}/*` : s.pattern;
     if (want && s.pattern !== want) { s.pattern = want; changed = true; }
   }
-  if (changed) await chrome.storage.local.set({ sites });
+  if (changed) await STORE.set({ sites });
   return sites;
 }
 
@@ -105,11 +114,11 @@ async function doSync() {
 // ---------- 事件 ----------
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === "install" || details.reason === "update") {
-    const existing = await loadSites();
-    if (!existing.length) {
+    const existing = await loadSitesOrIndex();
+    if (!existing.length && (await AL_VAULT.state()) !== "locked") {
       const seeded = fromLegacy();
       if (seeded.length) {
-        await chrome.storage.local.set({ sites: seeded });
+        await STORE.set({ sites: seeded });
         console.log("[AutoLogin] 已從 credentials.js 匯入", seeded.length, "筆設定");
       }
     }
@@ -118,12 +127,14 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   maybeSync("installed");
 });
 
-chrome.runtime.onStartup.addListener(() => { syncRegistration(); maybeSync("startup"); });
+chrome.runtime.onStartup.addListener(() => { syncRegistration(); maybeSync("startup"); updateBadge(); });
 chrome.permissions.onAdded.addListener(syncRegistration);
 chrome.permissions.onRemoved.addListener(syncRegistration);
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") return;
+  if (area === "session" && changes.lockKey) updateBadge();
+  if (area === "local" && changes.lock) updateBadge();
+  if (area !== "local" && area !== "session") return;
   if (changes.sites) syncRegistration();
   if (changes.sites || changes.tombstones) schedulePush();
 });
@@ -139,12 +150,13 @@ function schedulePush() {
 }
 
 async function maybeSync(reason) {
-  const conf = (await chrome.storage.local.get("sync")).sync || {};
+  if ((await AL_VAULT.state()) === "locked") return;   // 鎖著就沒有 PAT / DEK，等解鎖
+  const conf = (await STORE.get("sync")).sync || {};
   if (!conf.enabled) return;
   if (reason === "local-change") {
     const cur = {
-      sites: (await chrome.storage.local.get("sites")).sites || [],
-      tombstones: (await chrome.storage.local.get("tombstones")).tombstones || [],
+      sites: (await STORE.get("sites")).sites || [],
+      tombstones: (await STORE.get("tombstones")).tombstones || [],
     };
     if ((await stateHash(cur)) === conf.lastHash) return;   // 這是剛套用下來的遠端資料，不是本機改的
   }
@@ -227,11 +239,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "identity":    return run(async () => ({ ok: true, ...(await AL_ID.me()) }));
     case "enrollIssue": return run(() => enrollIssue(msg.args || {}));
     case "enrollClaim": return run(() => enrollClaim(msg.args || {}));
+    // ---- 給 content script / picker 的窄介面：只回「發問那個分頁的網域」的資料 ----
+    case "siteFor":     return run(() => siteFor(sender));
+    case "pickerLoad":  return run(() => pickerLoad(sender));
+    case "pickerSave":  return run(() => pickerSave(sender, msg.rec));
+    case "openUnlock":  return run(() => openUnlock(msg.tabId || (sender.tab && sender.tab.id), msg.reason));
+    case "unlocked":    return run(() => afterUnlock(msg.tabId));
+    case "lockNow":     return run(async () => { await AL_VAULT.lockNow(); return { ok: true }; });
+    case "vaultInfo":   return run(async () => ({ ok: true, ...(await AL_VAULT.info()) }));
     case "debug":       return run(async () => ({
       ok: true,
       registered: await chrome.scripting.getRegisteredContentScripts().catch((e) => String(e)),
       grantedOrigins: (await chrome.permissions.getAll()).origins || [],
-      sites: (await loadSites()).map((s) => ({
+      lock: await AL_VAULT.info(),
+      sites: (await loadSitesOrIndex()).map((s) => ({
         label: s.label, host: s.host, pattern: s.pattern, enabled: s.enabled !== false,
       })),
       loaded: {
@@ -243,3 +264,93 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   sendResponse({ ok: false, error: `background 不認得這個指令：${msg && msg.cmd}` });
   return false;
 });
+
+
+// ================= 本機加密（passkey 鎖） =================
+const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+
+// content script 跑在網頁的 renderer 裡，不給它整份 sites，只給這個網域的
+async function siteFor(sender) {
+  const host = hostOf(sender && sender.url);
+  if (!host) return { ok: false, error: "不明的來源" };
+  const { siteStats = {} } = await chrome.storage.local.get("siteStats");
+  if ((await AL_VAULT.state()) === "locked") {
+    const idx = (await AL_VAULT.siteIndex()).filter((s) => s.enabled && s.host.toLowerCase() === host);
+    return { ok: true, locked: true, index: idx, siteStats: {} };
+  }
+  const sites = (await loadSites()).filter((s) => (s.host || "").toLowerCase() === host);
+  const stats = Object.fromEntries(sites.filter((s) => siteStats[s.id]).map((s) => [s.id, siteStats[s.id]]));
+  return { ok: true, locked: false, sites, siteStats: stats };
+}
+
+async function pickerLoad(sender) {
+  const host = hostOf(sender && sender.url);
+  if ((await AL_VAULT.state()) === "locked") return { ok: true, locked: true };
+  const sites = await loadSites();
+  const existing = sites.find((s) => (s.host || "").toLowerCase() === host) || null;
+  const G = self.AL_GROUPS;
+  const grpN = existing && G && G.key(existing.credGroup)
+    ? sites.filter((s) => G.key(s.credGroup) === G.key(existing.credGroup)).length : 0;
+  return { ok: true, locked: false, existing, grpN };
+}
+
+async function pickerSave(sender, rec) {
+  const host = hostOf(sender && sender.url);
+  if (!rec || (rec.host || "").toLowerCase() !== host) return { ok: false, error: "網域對不上，拒絕寫入" };
+  const sites = await loadSites();
+  const existing = sites.find((s) => s.id === rec.id);
+  const next = sites.filter((s) => s.id !== rec.id);
+  next.push(rec);
+  const G = self.AL_GROUPS;
+  if (existing && G && G.key(rec.credGroup) &&
+      (rec.username !== existing.username || rec.password !== existing.password)) {
+    G.applyToGroup(next, rec.credGroup, { username: rec.username, password: rec.password });
+  }
+  await STORE.set({ sites: next });
+  return { ok: true, patterns: await syncRegistration() };
+}
+
+// WebAuthn 不能在 service worker 跑，popup 又一失焦就關 —— 所以開一個小視窗
+let unlockWin = null;
+async function openUnlock(tabId, reason) {
+  // 先試著直接打開工具列上的 popup（Chrome 127+）—— 解鎖就在那裡做，跟錢包一樣。
+  // 打不開（舊版 Chrome、視窗沒焦點、icon 被收進拼圖選單）才退回獨立小視窗。
+  try {
+    const tab = tabId ? await chrome.tabs.get(Number(tabId)) : null;
+    await chrome.action.openPopup(tab ? { windowId: tab.windowId } : {});
+    return { ok: true, via: "popup" };
+  } catch (e) {
+    console.log("[AutoLogin] openPopup 不行，改開小視窗：", e && e.message);
+  }
+  if (unlockWin) {
+    try { await chrome.windows.update(unlockWin, { focused: true }); return { ok: true }; } catch { unlockWin = null; }
+  }
+  const q = new URLSearchParams({ tab: tabId ? String(tabId) : "", reason: reason || "" });
+  const w = await chrome.windows.create({
+    url: chrome.runtime.getURL("unlock.html?" + q), type: "popup", width: 420, height: 360, focused: true,
+  });
+  unlockWin = w.id;
+  return { ok: true };
+}
+chrome.windows.onRemoved.addListener((id) => { if (id === unlockWin) unlockWin = null; });
+
+// 解鎖後：把剛剛卡住的那一頁重新跑一次 content script，並補做鎖著時跳過的同步
+async function afterUnlock(tabId) {
+  updateBadge();
+  syncRegistration();
+  maybeSync("unlock");
+  if (tabId) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: Number(tabId) }, files: ["lib/selector.js", "content.js"] });
+    } catch (e) { console.warn("[AutoLogin] 解鎖後重跑 content script 失敗：", e); }
+  }
+  return { ok: true };
+}
+
+async function updateBadge() {
+  const st = await AL_VAULT.state().catch(() => "off");
+  await chrome.action.setBadgeText({ text: st === "locked" ? "🔒" : "" });
+  await chrome.action.setBadgeBackgroundColor({ color: "#6b7280" });
+  await chrome.action.setTitle({ title: st === "locked" ? "Auto Login（已鎖定，點開解鎖）" : "Auto Login" });
+}
+updateBadge();

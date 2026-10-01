@@ -1,0 +1,92 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>YT Audio Grabber 設定</title>
+<style>
+:root { color-scheme: light dark; }
+body { max-width: 640px; margin: 40px auto; padding: 0 20px;
+  font: 14px/1.6 -apple-system,"Segoe UI",Roboto,"Noto Sans TC",sans-serif; }
+h1 { font-size: 19px; margin-bottom: 4px; }
+p.sub { opacity: .7; margin-top: 0; }
+label { display: block; font-weight: 600; margin: 18px 0 5px; }
+input, select { width: 100%; padding: 8px 10px; font: inherit; border-radius: 7px;
+  border: 1px solid rgba(128,128,128,.45); background: transparent; color: inherit; }
+input.short { width: 120px; }
+.hint { font-size: 12px; opacity: .65; margin-top: 4px; }
+.actions { margin-top: 24px; display: flex; gap: 8px; align-items: center; }
+button { font: inherit; padding: 8px 14px; border-radius: 7px; cursor: pointer;
+  border: 1px solid rgba(128,128,128,.45); background: transparent; color: inherit; }
+button.primary { background: #c00; border-color: #c00; color: #fff; font-weight: 600; }
+#result { margin-top: 16px; font-size: 13px; white-space: pre-wrap;
+  border-left: 3px solid rgba(128,128,128,.4); padding-left: 10px; }
+code { background: rgba(128,128,128,.15); padding: 1px 5px; border-radius: 4px; }
+.ok { color: #1a7f37; } .bad { color: #cf222e; }
+.hidden { display: none; }
+hr { border: 0; border-top: 1px solid rgba(128,128,128,.25); margin: 28px 0; }
+ol { padding-left: 20px; } ol li { margin: 6px 0; }
+</style></head>
+<body>
+  <h1>YT Audio Grabber <span id="overs" style="font-size:12px;font-weight:400;opacity:.55"></span></h1>
+  <p class="sub">擴充功能只負責介面，實際下載由你 Mac 上的本機 helper（yt-dlp）執行。</p>
+
+  <label for="port">Helper 連接埠</label>
+  <input id="port" class="short" type="number" min="1024" max="65535">
+
+  <label for="token">Helper Token</label>
+  <input id="token" type="text" spellcheck="false" placeholder="貼上 install.sh 印出的 token">
+  <div class="hint">也可在終端機取得：<code>cat ~/.config/yt-audio-grabber/token</code></div>
+
+  <label for="format">預設音檔格式</label>
+  <select id="format">
+    <option value="original">原始最佳音軌（不轉檔，建議）</option>
+    <option value="m4a">M4A / AAC</option>
+    <option value="opus">Opus</option>
+    <option value="mp3">MP3 320k</option>
+    <option value="flac">FLAC</option>
+    <option value="wav">WAV</option>
+  </select>
+
+  <label><input type="checkbox" id="notify" style="width:auto"> 下載完成時顯示系統通知</label>
+
+  <div class="actions">
+    <button id="save" class="primary">儲存</button>
+    <button id="test">測試連線</button>
+  </div>
+  <div id="result"></div>
+
+  <hr>
+  <h1 style="font-size:16px">Helper 設定</h1>
+  <p class="sub">這一區直接寫入本機服務的 <code>~/.config/yt-audio-grabber/config.json</code>，存檔後立即生效，不必重啟。</p>
+  <div id="hcfg" class="hidden">
+    <label for="outdir">音檔輸出資料夾</label>
+    <input id="outdir" type="text" spellcheck="false" placeholder="~/Downloads">
+    <div class="hint">不存在的話會自動建立。</div>
+
+    <label for="cookies">帶入瀏覽器 cookie</label>
+    <select id="cookies">
+      <option value="">不使用（預設）</option>
+      <option value="chrome">Chrome</option>
+      <option value="brave">Brave</option>
+      <option value="edge">Edge</option>
+      <option value="firefox">Firefox</option>
+      <option value="safari">Safari</option>
+    </select>
+    <div class="hint">年齡限制或會員限定影片才需要。</div>
+
+    <label><input type="checkbox" id="embedmeta" style="width:auto"> 嵌入標題等 metadata</label>
+    <label><input type="checkbox" id="embedthumb" style="width:auto"> 嵌入封面圖</label>
+
+    <div class="actions">
+      <button id="hsave" class="primary">套用到 helper</button>
+    </div>
+    <div id="hresult"></div>
+  </div>
+  <div id="hcfgoff" class="hint">先設好上面的 port 與 token 並儲存，這一區才會出現。</div>
+
+  <hr>
+  <h1 style="font-size:16px">首次安裝</h1>
+  <ol>
+    <li>終端機執行 <code>bash ~/Workspace/autotool/yt-audio-grabber/helper/install.sh</code></li>
+    <li>把它印出的 token 貼到上面，按「儲存」再按「測試連線」</li>
+    <li>音檔預設存到 <code>~/Downloads</code>；要改路徑或帶 cookie，用上面的「Helper 設定」區即可</li>
+  </ol>
+  <script src="options.js"></script>
+</body></html>

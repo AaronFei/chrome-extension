@@ -4,6 +4,8 @@ const DEFAULTS = {
   preScroll: true,
   preScrollWaitMs: 120,
   settleMs: 250,
+  target: 'auto',
+  cropSidebar: true,
   jpegQuality: 0.92
 };
 const $ = (id) => document.getElementById(id);
@@ -23,6 +25,8 @@ async function load() {
   $('hideFixed').checked = !!settings.hideFixed;
   $('preScroll').checked = !!settings.preScroll;
   $('settleMs').value = String(settings.settleMs);
+  $('target').value = settings.target;
+  $('cropSidebar').checked = !!settings.cropSidebar;
 }
 
 async function save() {
@@ -31,12 +35,14 @@ async function save() {
     afterCapture: $('afterCapture').value,
     hideFixed: $('hideFixed').checked,
     preScroll: $('preScroll').checked,
-    settleMs: Number($('settleMs').value)
+    settleMs: Number($('settleMs').value),
+    target: $('target').value,
+    cropSidebar: $('cropSidebar').checked
   };
   await chrome.storage.sync.set({ settings });
 }
 
-['afterCapture', 'hideFixed', 'preScroll', 'settleMs'].forEach((id) =>
+['afterCapture', 'hideFixed', 'preScroll', 'settleMs', 'target', 'cropSidebar'].forEach((id) =>
   $(id).addEventListener('change', save)
 );
 

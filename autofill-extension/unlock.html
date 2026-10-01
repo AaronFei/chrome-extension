@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>解鎖 Auto Login</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; font:14px/1.6 -apple-system,"Segoe UI","Noto Sans TC",system-ui,sans-serif;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  .card { width:340px; padding:22px; text-align:center; }
+  .ic { font-size:34px; }
+  h1 { font-size:17px; margin:6px 0 2px; }
+  .why { color:#6b7280; font-size:12px; min-height:18px; word-break:break-all; }
+  button { width:100%; padding:10px; margin-top:14px; border-radius:9px; border:0; font-size:14px;
+           background:#3b82f6; color:#fff; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  .msg { margin-top:12px; font-size:12px; min-height:18px; }
+  .err { color:#dc2626; } .ok { color:#16a34a; }
+  details { margin-top:16px; text-align:left; font-size:12px; color:#6b7280; }
+  details button { background:#dc2626; font-size:12px; padding:7px; }
+</style>
+<div class="card">
+  <div class="ic">🔒</div>
+  <h1>解鎖 Auto Login</h1>
+  <div class="why" id="why"></div>
+  <button id="go">用 passkey 解鎖</button>
+  <div class="msg" id="msg"></div>
+  <details id="lost">
+    <summary>passkey 不見了？</summary>
+    <p>本機這份密文只有那把 passkey 解得開。放棄它之後，這台會回到空白狀態，
+       再到管理頁用「發卡」或「救援片語」從 gist 接回來即可。<b>沒開同步的話，設定就沒了。</b></p>
+    <button id="abandon">放棄本機資料，重新開始</button>
+  </details>
+</div>
+<script src="lib/crypto.js"></script>
+<script src="lib/vault.js"></script>
+<script src="lib/passkey.js"></script>
+<script src="unlock.js"></script>

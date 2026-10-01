@@ -42,7 +42,14 @@
         <option value="clipboard">複製到剪貼簿</option>
       </select>
     </label>
+    <label class="row"><span>捲動目標</span>
+      <select id="target">
+        <option value="auto">自動（含內部捲動區塊）</option>
+        <option value="page">只捲整頁</option>
+      </select>
+    </label>
     <label class="row"><input type="checkbox" id="hideFixed"><span>隱藏固定/黏性元素（避免重複 header）</span></label>
+    <label class="row"><input type="checkbox" id="cropSidebar"><span>裁掉左右固定側欄</span></label>
     <label class="row"><input type="checkbox" id="preScroll"><span>先捲一遍觸發 lazy-load</span></label>
     <label class="row"><span>每屏等待</span>
       <select id="settleMs">

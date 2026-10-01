@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<style>
+  body { font: 13px system-ui, sans-serif; width: 260px; margin: 12px; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+  .note { color: #666; font-size: 12px; margin-top: 8px; line-height: 1.4; }
+</style></head>
+<body>
+  <h1>Classroom Wake</h1>
+  <div>方案 A（偽裝前景）：<b>一律啟用</b></div>
+  <hr>
+  <label><input type="checkbox" id="planB">
+    <span>方案 B：群組內背景 Classroom 分頁載入時，自動切到前景約 6 秒再切回</span></label>
+  <div class="note">B 只影響分頁群組裡的分頁；手動開的 Classroom 分頁不受影響。</div>
+  <script src="popup.js"></script>
+</body></html>

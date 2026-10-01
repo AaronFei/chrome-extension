@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header>
+    <div class="brand">YT Audio Grabber <span id="ver" class="ver"></span></div>
+    <div id="status" class="dot" title="helper 狀態"></div>
+  </header>
+
+  <div class="row">
+    <input id="url" type="text" placeholder="貼上 YouTube 網址，或留空抓目前分頁" spellcheck="false">
+  </div>
+  <div class="row">
+    <select id="format">
+      <option value="original">原始最佳音軌（不轉檔）</option>
+      <option value="m4a">M4A / AAC</option>
+      <option value="opus">Opus</option>
+      <option value="mp3">MP3 320k</option>
+      <option value="flac">FLAC</option>
+      <option value="wav">WAV</option>
+    </select>
+    <button id="go" class="primary">下載音檔</button>
+  </div>
+
+  <div id="msg" class="msg"></div>
+  <div id="jobs" class="jobs"></div>
+
+  <footer>
+    <span id="out" class="out"></span>
+    <a href="#" id="clear">清除紀錄</a>
+    <a href="#" id="opts">設定</a>
+  </footer>
+  <script src="popup.js"></script>
+</body></html>

@@ -16,6 +16,7 @@
   // state:
   //   unknown        剛注入，還在判斷
   //   no-credentials content script 有跑，但這個網址沒有對應的設定
+  //   locked         有對應的設定，但 passkey 鎖還沒解（頁面右上角有解鎖提示）
   //   logged-out     頁面上有登入表單，準備填
   //   pending        已送出，等結果（頁面通常會導頁，這個 world 就整個換掉）
   //   filled         已填入但設定成不自動送出，等人按
@@ -92,6 +93,25 @@
   };
   // ==================================================
 
+  function showLockBanner(label) {
+    const host = document.createElement("div");
+    host.id = "__al_lock__";
+    host.style.cssText = "position:fixed;top:12px;right:12px;z-index:2147483647";
+    const root = host.attachShadow({ mode: "closed" });
+    root.innerHTML = `
+      <style>
+        .b{font:13px -apple-system,"Segoe UI",sans-serif;background:#111827;color:#fff;border-radius:10px;
+           padding:9px 12px;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center}
+        button{font:inherit;border:0;border-radius:6px;padding:5px 10px;cursor:pointer}
+        .u{background:#3b82f6;color:#fff}.x{background:transparent;color:#9ca3af;padding:5px 4px}
+      </style>
+      <div class="b"><span>🔒 Auto Login 已鎖定</span>
+        <button class="u">解鎖並登入</button><button class="x" title="這次先不要">✕</button></div>`;
+    root.querySelector(".u").onclick = () => chrome.runtime.sendMessage({ cmd: "openUnlock", reason: label });
+    root.querySelector(".x").onclick = () => host.remove();
+    document.documentElement.appendChild(host);
+  }
+
   const T0 = Date.now();   // 量測基準：content script 開跑的時間（document_idle）
 
   const LOG  = (...a) => console.log("%c[AutoLogin]", "color:#3b82f6;font-weight:bold", ...a);
@@ -107,11 +127,16 @@
   window.__AL_FORCE__ = false;
 
   // ---------- 1. 找出這個網址對應的設定 ----------
-  let sites = [], siteStats = {};
+  // 帳密不直接讀 storage：開了 passkey 鎖之後它們只在 background 的記憶體裡，
+  // 而且 background 只回「這個網域」的設定，不把整份交給網頁的 renderer。
+  document.getElementById("__al_lock__")?.remove();   // 解鎖後重跑時把舊的提示拿掉
+  let sites = [], siteStats = {}, resp;
   try {
-    ({ sites = [], siteStats = {} } = await chrome.storage.local.get(["sites", "siteStats"]));
+    resp = await chrome.runtime.sendMessage({ cmd: "siteFor" });
+    if (!resp || !resp.ok) throw new Error((resp && resp.error) || "background 沒有回應");
+    ({ sites = [], siteStats = {} } = resp);
   } catch (e) {
-    setState("error", { errorCode: "STORAGE_ERROR", errorMsg: String(e) });
+    setState("error", { errorCode: "STORAGE_ERROR", errorMsg: String(e.message || e) });
     return;
   }
 
@@ -124,6 +149,16 @@
     }
     return true;
   };
+
+  if (resp.locked) {
+    const hit = (resp.index || []).find(matches);
+    if (!hit) { setState("no-credentials"); return; }
+    // 用到才解：這頁確實有設定，才提示解鎖（不主動跳 Touch ID）
+    setState("locked", { siteId: hit.id });
+    LOG("已鎖定，等使用者解鎖：", hit.label || hit.host);
+    showLockBanner(hit.label || hit.host);
+    return;
+  }
 
   const site = sites.find(matches);
   if (!site) { setState("no-credentials"); return; }
@@ -139,10 +174,20 @@
   // 判定「不該再試」之後要記住，否則同一分頁下一次載入又會從頭來一遍
   const HALT_KEY = "__autologin_halt__" + site.id;
   const readHalt  = () => { try { return JSON.parse(sessionStorage.getItem(HALT_KEY) || "null"); } catch { return null; } };
-  const setHalt   = (code, msg) => { try { sessionStorage.setItem(HALT_KEY, JSON.stringify({ code, msg })); } catch {} };
+  // rev = 停手當下這筆設定的 updatedAt。之後設定被改過（例如共用組換了新密碼）就不該再擋
+  const setHalt   = (code, msg) => { try { sessionStorage.setItem(HALT_KEY, JSON.stringify({ code, msg, rev: site.updatedAt || 0 })); } catch {} };
   const clearHalt = () => { try { sessionStorage.removeItem(HALT_KEY); } catch {} };
 
-  const tries = FORCE ? 0 : readTries();
+  // 帳密錯而停手之後，使用者去管理頁換了新密碼 → 這個分頁不用再按「立即填入」，直接重來
+  {
+    const h = readHalt();
+    if (h && (site.updatedAt || 0) > (h.rev || 0)) {
+      clearTries(); clearHalt();
+      LOG("設定在停手之後更新過，重置嘗試次數。");
+    }
+  }
+
+  let tries = FORCE ? 0 : readTries();
   if (FORCE) { clearTries(); clearHalt(); }
 
   setState("unknown", { siteId: site.id, account: site.username || "", attempt: tries });
@@ -272,9 +317,65 @@
     if (tries > 0) { clearTries(); LOG("這一頁沒有登入欄位，視為已登入，重置嘗試次數。"); }
     clearHalt();
     setState("success", { attempt: 0 });
+    watchLateForm();
     return;
   }
 
+  return fillFlow(found, false);
+
+  // ---------- 6. 點了才跳出來的登入框（抽屜、modal、SPA 換頁） ----------
+  // 初次判定「這頁沒有登入表單」之後不收工，繼續看 DOM。
+  // 像 Marriott 那種按「Sign In」才滑出來的側欄，表單出現時頁面早就判成 success 了，
+  // 以前就是這樣永遠填不到。
+  //
+  // 這條路比頁面載入時嚴格：已經登入的站內頁面也可能冒出密碼欄（改密碼、註冊、確認身分），
+  // 那些絕對不能自動填＋送出。
+  function lateFormOk(passEl) {
+    if (!passEl) return false;
+    const ac = (passEl.getAttribute("autocomplete") || "").toLowerCase();
+    if (ac.includes("new-password")) return false;                     // 註冊 / 改密碼
+    const scope = passEl.form || passEl.closest('[role="dialog"], dialog, aside, section') || document;
+    const pw = [...scope.querySelectorAll('input[type="password"]')].filter(AL.visible);
+    if (pw.length > 1) return false;                                    // 新密碼＋確認密碼
+    return true;
+  }
+
+  function watchLateForm() {
+    const done = new WeakSet();   // 同一個密碼欄只處理一次；關掉再開（新節點）才會再處理
+    let timer = null, busy = false;
+
+    const check = () => {
+      timer = null;
+      if (busy) return;
+      const found = resolve();
+      if (!found || done.has(found.passEl)) return;
+      done.add(found.passEl);
+      if (!lateFormOk(found.passEl)) {
+        LOG("出現密碼欄，但看起來是註冊／改密碼表單，不處理。");
+        setState("success", { attempt: 0 });   // resolve() 剛把狀態改成 logged-out，改回來
+        return;
+      }
+      LOG("偵測到後來才出現的登入表單。");
+      busy = true;
+      // 等抽屜的開啟動畫跑完、框架把欄位接好再填，否則值會被 re-render 洗掉
+      setTimeout(async () => {
+        try {
+          const again = resolve();
+          if (again && AL.visible(again.passEl)) await fillFlow(again, true);
+        } finally { busy = false; }
+      }, 350);
+    };
+
+    const obs = new MutationObserver(() => { if (!timer) timer = setTimeout(check, 250); });
+    obs.observe(document.documentElement, {
+      childList: true, subtree: true,
+      attributes: true, attributeFilter: ["class", "style", "hidden", "aria-hidden", "open"],
+    });
+  }
+
+  // ---------- 7. 填入＋送出 ----------
+  async function fillFlow(found, late) {
+  if (late) tries = readTries();   // 同一頁可能開關好幾次登入框，每次都要讀最新的次數
   const RESUME = " 想再試請按 extension 圖示的「立即填入」，或在 console 執行 __autologinReset() 後重新整理。";
 
   // 上一次已經判定不該再試（例如帳密錯）—— 同分頁後續載入直接停，不要又送一次
@@ -305,7 +406,7 @@
     return;
   }
 
-  persistStat();   // 確定是登入頁了，把 render 時間記起來給非登入頁用
+  if (!late) persistStat();   // 確定是登入頁了（後來才點出來的表單不算 render 時間），把 render 時間記起來給非登入頁用
 
   const { userEl, passEl } = found;
   LOG("找到欄位：", { user: userEl, pass: passEl });
@@ -358,6 +459,28 @@
     // MV3 的 service worker 隨時可能被回收，timer 跟著沒了，狀態就會永遠卡在 pending。
     // content script 的生命週期綁在頁面上，頁面還在它就還在。
     // 正常情況下這裡會導頁，整個 world 連同這個 timer 一起消失，所以它只在「沒導頁」時才燒到。
+    // 不導頁的登入（抽屜、SPA）：錯誤訊息會直接出現在同一頁，這裡就要抓到，
+    // 否則使用者再點一次 Sign In 又會被自動送出一次 —— 接 AD 的站那就是在鎖帳號。
+    const t0 = Date.now();
+    const poll = setInterval(() => {
+      if (node.dataset.state !== "pending" || Date.now() - t0 > 14000) { clearInterval(poll); return; }
+      if (!passEl.isConnected || !AL.visible(passEl)) {
+        // 登入框消失了 → 多半是成功（導頁的話整個 world 會先沒掉，走不到這裡）
+        clearInterval(poll);
+        clearTries();
+        setState("success", { attempt: 0 });
+        return;
+      }
+      const err = detectError();
+      if (err) {
+        clearInterval(poll);
+        const msg = `登入被拒：${err.text}`;
+        setHalt("BAD_CREDENTIALS", msg);
+        setState("error", { errorCode: "BAD_CREDENTIALS", errorMsg: msg, attempt: tries + 1 });
+        WARN(msg + "（已停止，不會再重試以免鎖帳號）" + RESUME);
+      }
+    }, 700);
+
     setTimeout(() => {
       if (node.dataset.state !== "pending") return;
       const stillLogin = !!AL.findPassword();
@@ -369,4 +492,5 @@
       WARN("送出後 15 秒頁面沒有變化。");
     }, 15000);
   }, site.delay ?? 300);
+  }
 })();

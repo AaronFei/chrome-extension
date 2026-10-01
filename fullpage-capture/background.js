@@ -16,6 +16,8 @@ const DEFAULTS = {
   preScroll: true,
   preScrollWaitMs: 120,
   settleMs: 250,
+  cropSidebar: true, // 整頁模式裁掉左右固定側欄
+  target: 'auto', // auto：頁面不會捲時改捲內部捲動區塊 | page：只捲整頁
   jpegQuality: 0.92
 };
 
@@ -79,9 +81,13 @@ async function captureFullPage(tab, settings) {
   setBadge('…', '#2563eb');
 
   const info = await exec(tabId, fpcPrepare, [
-    { preScroll: settings.preScroll, preScrollWaitMs: settings.preScrollWaitMs }
+    { preScroll: settings.preScroll, preScrollWaitMs: settings.preScrollWaitMs, target: settings.target, cropSidebar: settings.cropSidebar }
   ]);
   if (!info) throw new Error('無法在這個分頁執行腳本');
+  const isBox = info.mode === 'container';
+  if (isBox) {
+    post({ type: 'progress', phase: 'prepare', text: `偵測到內部捲動區塊 ${info.desc}` });
+  }
 
   let fullHeight = info.fullHeight;
   const shots = [];
@@ -97,6 +103,8 @@ async function captureFullPage(tab, settings) {
 
   let scale = 1;
   let effViewH = info.viewH;
+  // 每一屏要從截圖裡切出來的區域（CSS px）。整頁模式 = 整個可視區；容器模式 = 容器的 client box
+  let crop = null;
 
   try {
     // 第一屏之前先藏掉「不是貼在頂端」的固定元素：底部工具列、聊天氣泡、cookie 條
@@ -111,8 +119,20 @@ async function captureFullPage(tab, settings) {
     // 這樣縮放、瀏覽器橫幅、headless 等情況都不會出現接縫或漏段。
     const bmp0 = await createImageBitmap(new Blob([dataUrlToBytes(d0)], { type: 'image/png' }));
     scale = bmp0.width / info.viewW;
-    effViewH = Math.max(50, Math.floor(bmp0.height / scale));
+    const shotH = bmp0.height / scale;
     bmp0.close();
+    if (isBox) {
+      const r = first.rect || info.rect;
+      const h = Math.floor(Math.min(r.y + r.h, shotH) - r.y);
+      if (h < 50 || r.w < 50) throw new Error('內部捲動區塊可視範圍太小，無法擷取');
+      crop = { x: r.x, y: r.y, w: r.w, h };
+      effViewH = h;
+    } else {
+      effViewH = Math.max(50, Math.floor(shotH));
+      const x0 = info.sideL || 0;
+      const x1 = info.sideR || info.clientW || info.viewW;
+      crop = { x: x0, y: 0, w: x1 - x0, h: effViewH };
+    }
 
     // 第一屏拍完，header 已經入鏡，接下來整批藏起來避免每屏重複
     if (settings.hideFixed) await exec(tabId, fpcSetFixedHidden, ['all']);
@@ -128,6 +148,9 @@ async function captureFullPage(tab, settings) {
       const s = await exec(tabId, fpcScrollTo, [Math.min(y, maxScroll), settings.settleMs]);
       fullHeight = Math.max(fullHeight, s.fullHeight);
       if (s.y <= shots[shots.length - 1].y) break; // 捲不動了
+      // 很多站（Confluence、文件站）是捲動「之後」才用 JS 把 header / 表頭改成 position:fixed，
+      // 第一屏之後那次掃描抓不到，所以每屏拍之前都再掃一次
+      if (settings.hideFixed) await exec(tabId, fpcSetFixedHidden, ['all']);
       shots.push({ y: s.y, dataUrl: await grab() });
 
       const total = Math.max(shots.length, Math.ceil(fullHeight / effViewH));
@@ -149,9 +172,10 @@ async function captureFullPage(tab, settings) {
   const coverage = shots[shots.length - 1].y + effViewH;
   const result = await stitch(shots, {
     scale,
-    outWCss: info.clientW || info.viewW,
+    crop,
     outHCss: Math.min(fullHeight, coverage)
   });
+  result.mode = info.mode;
   result.url = info.url;
   result.title = info.title;
   result.truncated = coverage < fullHeight - 1 ? Math.round(fullHeight - coverage) : null;
@@ -159,7 +183,8 @@ async function captureFullPage(tab, settings) {
 }
 
 async function stitch(shots, dims) {
-  let outW = Math.round(dims.outWCss * dims.scale);
+  const c = dims.crop;
+  let outW = Math.round(c.w * dims.scale);
   let outH = Math.round(dims.outHCss * dims.scale);
 
   let shrink = 1;
@@ -181,7 +206,11 @@ async function stitch(shots, dims) {
   for (const shot of shots) {
     const bmp = await createImageBitmap(new Blob([dataUrlToBytes(shot.dataUrl)], { type: 'image/png' }));
     // 最後一屏通常和前一屏重疊，直接覆蓋上去內容一樣，不會有接縫
-    ctx.drawImage(bmp, 0, shot.y * dims.scale * shrink, bmp.width * shrink, bmp.height * shrink);
+    const sx = Math.round(c.x * dims.scale);
+    const sy = Math.round(c.y * dims.scale);
+    const sw = Math.min(bmp.width - sx, Math.round(c.w * dims.scale));
+    const sh = Math.min(bmp.height - sy, Math.round(c.h * dims.scale));
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, shot.y * dims.scale * shrink, sw * shrink, sh * shrink);
     bmp.close();
   }
 

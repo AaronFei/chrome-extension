@@ -30,13 +30,13 @@ const maxVer = (a, b) => (cmpVer(a, b) >= 0 ? a : b);
 const ENROLL_PRE = "enroll-";
 const ENROLL_TTL = 24 * 3600 * 1000;   // 發卡檔放超過一天就自己清掉
 
-const syncConf = async () => (await chrome.storage.local.get("sync")).sync || {};
+const syncConf = async () => (await AL_VAULT.store.get("sync")).sync || {};
 const syncSave = async (patch) => {
   const next = { ...(await syncConf()), ...patch };
-  await chrome.storage.local.set({ sync: next });
+  await AL_VAULT.store.set({ sync: next });
   return next;
 };
-const loadTombs = async () => (await chrome.storage.local.get("tombstones")).tombstones || [];
+const loadTombs = async () => (await AL_VAULT.store.get("tombstones")).tombstones || [];
 
 // ---------- GitHub API ----------
 async function gh(path, { token, method = "GET", body } = {}) {
@@ -151,6 +151,7 @@ let syncBusy = null;
 async function syncNow(reason = "") {
   if (syncBusy) return syncBusy;                    // 同時被 alarm 和 storage 事件叫到就共用同一次
   syncBusy = (async () => {
+    if ((await AL_VAULT.state()) === "locked") return { ok: false, locked: true, error: "已鎖定，解鎖後才會同步" };
     const conf = await syncConf();
     if (!conf.enabled) return { ok: false, error: "同步沒有開啟" };
     if (!conf.token || !conf.gistId || !conf.dek) return { ok: false, error: "同步設定不完整" };
@@ -173,7 +174,7 @@ async function syncNow(reason = "") {
       }
 
       const local = {
-        sites: (await chrome.storage.local.get("sites")).sites || [],
+        sites: (await AL_VAULT.store.get("sites")).sites || [],
         tombstones: await loadTombs(),
       };
       const merged = mergeAll(local, remote);
@@ -185,7 +186,7 @@ async function syncNow(reason = "") {
       if (hMerged !== hLocal) {
         // 先記 hash 再寫，否則 storage.onChanged 會把這次「套用遠端」當成本機改動，再推一次
         await syncSave({ lastHash: hMerged });
-        await chrome.storage.local.set({ sites: merged.sites, tombstones: merged.tombstones });
+        await AL_VAULT.store.set({ sites: merged.sites, tombstones: merged.tombstones });
       }
 
       let pushed = false;
@@ -233,7 +234,7 @@ async function syncSetup({ mode, token, gistId, passphrase }) {
       const dek = await AL_CRYPTO.importKey(dekB64);
 
       const now = Date.now();
-      const sites = ((await chrome.storage.local.get("sites")).sites || [])
+      const sites = ((await AL_VAULT.store.get("sites")).sites || [])
         .map((s) => ({ ...s, updatedAt: s.updatedAt || now }));
       const payloadObj = { sites, tombstones: await loadTombs() };
 
@@ -254,7 +255,7 @@ async function syncSetup({ mode, token, gistId, passphrase }) {
         },
       });
 
-      await chrome.storage.local.set({ sites });
+      await AL_VAULT.store.set({ sites });
       await syncSave({
         enabled: true, token, gistId: created.id, dek: dekB64, salt: "",
         hasRescue: false, rev: 1, lastOk: Date.now(), lastError: "",
@@ -284,9 +285,9 @@ async function syncSetup({ mode, token, gistId, passphrase }) {
     catch { return { ok: false, error: "片語對，但內容解不開 —— gist 可能壞了" }; }
 
     const now = Date.now();
-    const local = ((await chrome.storage.local.get("sites")).sites || [])
+    const local = ((await AL_VAULT.store.get("sites")).sites || [])
       .map((s) => ({ ...s, updatedAt: s.updatedAt || now }));
-    await chrome.storage.local.set({ sites: local });
+    await AL_VAULT.store.set({ sites: local });
 
     await syncSave({ enabled: true, token, gistId, dek: dekB64,
                      salt: blob.kdf.salt, hasRescue: true, lastError: "" });
@@ -325,11 +326,12 @@ async function setRescue({ passphrase }) {
 
 // 只關掉本機的同步。gist 留著（其他機器還在用），要刪請自己去 GitHub 刪。
 async function syncDisable() {
-  await chrome.storage.local.set({ sync: { enabled: false } });
+  await AL_VAULT.store.set({ sync: { enabled: false } });
   return { ok: true };
 }
 
 async function syncStatus() {
+  if ((await AL_VAULT.state()) === "locked") return { ok: true, locked: true, enabled: false, version: myVersion() };
   const c = await syncConf();
   return {
     ok: true,

@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Passkey PRF 測試</title>
+<style>
+ body{font:14px -apple-system,"Segoe UI",sans-serif;max-width:720px;margin:24px auto;padding:0 16px}
+ button{font-size:14px;padding:6px 14px;margin-right:8px}
+ pre{background:#f4f4f4;padding:10px;white-space:pre-wrap;word-break:break-all}
+ .ok{color:#080}.err{color:#c00}
+</style>
+<h2>Passkey PRF 測試</h2>
+<p>1. 按「註冊」建一把測試用 passkey　2. 按「驗證」兩次，兩次的 PRF 值要一樣</p>
+<p><button id="reg">1. 註冊</button><button id="get">2. 驗證</button></p>
+<pre id="out"></pre>
+<script src="prf-test.js"></script>

@@ -1,18 +1,19 @@
 "use strict";
 
+const G = self.AL_GROUPS;
 const list  = document.getElementById("list");
 const bar   = document.getElementById("bar");
 const count = document.getElementById("count");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
-const load = async () => (await chrome.storage.local.get("sites")).sites || [];
-const loadStats = async () => (await chrome.storage.local.get("siteStats")).siteStats || {};
+const load = async () => (await AL_VAULT.store.get("sites")).sites || [];
+const loadStats = async () => (await AL_VAULT.store.get("siteStats")).siteStats || {};
 const deriveIdle = (ms) => ms == null ? null : Math.min(4000, Math.max(1000, Math.round(ms * 3 + 800)));
 // 每一筆改動都要蓋時間戳，雲端同步的合併完全靠它決定誰比較新
 const touch = (s) => { s.updatedAt = Date.now(); return s; };
 
 const save = async (sites) => {
-  await chrome.storage.local.set({ sites });
+  await AL_VAULT.store.set({ sites });
   try { await chrome.runtime.sendMessage({ cmd: "sync" }); } catch {}
 };
 
@@ -37,10 +38,91 @@ function updateCount(sites) {
   count.textContent = `共 ${sites.length} 個網站，已啟用 ${n} 個`;
 }
 
+// ---------- 共用帳密（憑證組） ----------
+const groupsBox = document.getElementById("groups");
+
+function renderGroups(sites) {
+  const dl = document.getElementById("grpList");
+  const groups = [...G.groupsOf(sites).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const sugg = G.suggestions(sites);
+  dl.innerHTML = groups.map((g) => `<option value="${esc(g.name)}">`).join("");
+
+  if (!groups.length && !sugg.length) { groupsBox.hidden = true; groupsBox.innerHTML = ""; return; }
+  groupsBox.hidden = false;
+
+  const names = (ms) => ms.map((m) => esc(m.label || m.host)).join("、");
+  groupsBox.innerHTML = `
+    <h2>共用帳密</h2>
+    <div class="hint">公司密碼到期換新時，在這裡改一次，同組的網站全部一起更新（雲端同步也會帶到其他機器）。</div>
+    ${groups.map((g) => `
+      <div class="grp" data-g="${esc(g.name)}">
+        <div><span class="gname">${esc(g.name)}</span>
+          <span class="mem">・${g.members.length} 個網站</span>
+          ${g.consistent ? "" : '<span class="warn">・各網站的帳密目前不一致，更新一次就會統一</span>'}</div>
+        <div class="mem">${names(g.members)}</div>
+        <div class="row">
+          <input type="text" data-gf="username" placeholder="帳號" value="${esc(g.username)}">
+          <input type="password" data-gf="password" placeholder="新密碼" autocomplete="new-password">
+          <button class="pri" data-ga="apply">套用到 ${g.members.length} 個網站</button>
+        </div>
+      </div>`).join("")}
+    ${sugg.map((x) => `
+      <div class="sugg" data-u="${esc(x.username)}">
+        有 ${x.members.length} 個網站用同一個帳號 <b>${esc(x.username)}</b>：${names(x.members)}
+        <div class="row">
+          <input type="text" data-sf="name" placeholder="組名" value="${esc(defaultGroupName(x, groups))}">
+          <button data-ga="create">建立共用組</button>
+        </div>
+      </div>`).join("")}`;
+}
+
+function defaultGroupName(x, groups) {
+  const hosts = x.members.map((m) => (m.host || "").split(".").slice(-2).join("."));
+  const base = hosts.every((h) => h === hosts[0]) && hosts[0] ? hosts[0] : x.username;
+  let name = base, n = 2;
+  while (groups.some((g) => G.key(g.name) === G.key(name))) name = `${base} (${n++})`;
+  return name;
+}
+
+groupsBox.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-ga]");
+  if (!btn) return;
+  const sites = await load();
+
+  if (btn.dataset.ga === "apply") {
+    const box = btn.closest(".grp");
+    const username = box.querySelector('[data-gf="username"]').value.trim();
+    const password = box.querySelector('[data-gf="password"]').value;
+    if (!password) { box.querySelector('[data-gf="password"]').focus(); return; }
+    const n = G.applyToGroup(sites, box.dataset.g, { username, password });
+    await save(sites);
+    await render();
+    const again = [...groupsBox.querySelectorAll(".grp")].find((el) => el.dataset.g === box.dataset.g);
+    again?.insertAdjacentHTML("beforeend",
+      `<div class="done">已更新 ${n} 個網站 ✓　因為帳密錯而停手的分頁，重新整理就會用新密碼再試一次。</div>`);
+    return;
+  }
+
+  if (btn.dataset.ga === "create") {
+    const box = btn.closest(".sugg");
+    const name = G.norm(box.querySelector('[data-sf="name"]').value);
+    if (!name) return;
+    const u = box.dataset.u.toLowerCase();
+    // 只標上組名，不動任何密碼 —— 目前各自的密碼可能有對有錯，下一次更新時才統一
+    for (const s of sites) {
+      if (!G.key(s.credGroup) && (s.username || "").toLowerCase() === u) touch(s).credGroup = name;
+    }
+    await save(sites);
+    return render();
+  }
+});
+
 async function render() {
   const sites = await load();
   const stats = await loadStats();
   updateCount(sites);
+  renderGroups(sites);
+  const groups = G.groupsOf(sites);
   if (!sites.length) {
     list.innerHTML = `<div class="empty">還沒有任何設定。<br>開啟一個登入頁，點 extension 圖示 →「設定這個網站」。</div>`;
     return;
@@ -75,6 +157,11 @@ async function render() {
       <div class="grid">
         <label>帳號</label><input type="text" data-f="username" value="${esc(s.username)}">
         <label>密碼</label><input type="password" data-f="password" value="${esc(s.password)}">
+        <label>共用組</label><input type="text" data-f="credGroup" list="grpList"
+               placeholder="留空＝這個網站自己管帳密；填同一個名字＝共用（例：Realtek AD）" value="${esc(s.credGroup)}">
+        ${(() => { const g = groups.get(G.key(s.credGroup));
+                   return g && g.members.length > 1
+                     ? `<div class="ghint">改帳號或密碼會一起套用到同組 ${g.members.length} 個網站</div>` : ""; })()}
         <label>自動送出</label><div><input type="checkbox" data-f="autoSubmit" ${s.autoSubmit === false ? "" : "checked"}></div>
       </div>
       <details><summary>進階（selector、網址過濾、延遲）</summary>
@@ -161,6 +248,7 @@ list.addEventListener("click", async (e) => {
   if (i < 0) return;
 
   if (a === "save") {
+    const before = { ...sites[i] };
     card.querySelectorAll("[data-f]").forEach((el) => {
       const f = el.dataset.f;
       if (el.type === "checkbox") sites[i][f] = el.checked;
@@ -170,20 +258,44 @@ list.addEventListener("click", async (e) => {
         if (v === "") delete sites[i][f];              // 留空＝交還給自動判斷
         else sites[i][f] = Math.max(200, Number(v) || 4000);
       }
+      else if (f === "credGroup") {
+        const v = G.norm(el.value);
+        if (v) sites[i][f] = v; else delete sites[i][f];
+      }
       else sites[i][f] = el.value;
     });
     touch(sites[i]);
+
+    // 共用組
+    let note = "已儲存 ✓";
+    const gk = G.key(sites[i].credGroup);
+    if (gk) {
+      const credChanged = sites[i].username !== before.username || sites[i].password !== before.password;
+      const others = sites.filter((s, j) => j !== i && G.key(s.credGroup) === gk);
+      if (credChanged && others.length) {
+        // 這張卡片改了帳密 → 整組跟著換
+        G.applyToGroup(sites, gk, { username: sites[i].username, password: sites[i].password });
+        note = `已儲存，並套用到同組 ${others.length + 1} 個網站 ✓`;
+      } else if (!credChanged && G.key(before.credGroup) !== gk && others.length) {
+        // 剛加入一個既有的組、自己沒動帳密 → 沿用組裡最新的那一份
+        const ref = [...others].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+        sites[i].username = ref.username;
+        sites[i].password = ref.password;
+        note = "已加入共用組，帳密改用組裡的 ✓";
+      }
+    }
+
     await save(sites);
-    btn.textContent = "已儲存 ✓";
+    btn.textContent = note;
     setTimeout(render, 900);
     return;
   }
   if (a === "del") {
     if (!confirm(`確定刪除「${sites[i].label || sites[i].host}」的設定？`)) return;
     const pattern = sites[i].pattern;
-    const { tombstones = [] } = await chrome.storage.local.get("tombstones");
+    const { tombstones = [] } = await AL_VAULT.store.get("tombstones");
     tombstones.push({ id: sites[i].id, at: Date.now() });
-    await chrome.storage.local.set({ tombstones });
+    await AL_VAULT.store.set({ tombstones });
     sites.splice(i, 1);
     await save(sites);
     if (pattern && !sites.some((s) => s.pattern === pattern)) {
@@ -223,7 +335,7 @@ async function syncRender() {
   try { st = await chrome.runtime.sendMessage({ cmd: "syncStatus" }); }
   catch (e) { why = e.message; }
   if (!st || !st.ok) {
-    const { sync = {} } = await chrome.storage.local.get("sync");
+    const { sync = {} } = await AL_VAULT.store.get("sync");
     st = { ok: false, degraded: true, enabled: !!sync.enabled, gistId: sync.gistId || "",
            rev: sync.rev || 0, lastOk: sync.lastOk || 0, lastError: sync.lastError || "",
            lastErrorAt: sync.lastErrorAt || 0, hasRescue: !!sync.hasRescue, granted: false };
@@ -354,7 +466,7 @@ syncRender();
 // 打開管理頁就順手拉一次 —— 不然你會看著一份可能是十分鐘前的清單。
 // 只有距離上次成功超過 30 秒才拉，免得一直開關頁面在打 GitHub。
 (async () => {
-  const { sync = {} } = await chrome.storage.local.get("sync");
+  const { sync = {} } = await AL_VAULT.store.get("sync");
   if (!sync.enabled) return;
   if (Date.now() - (sync.lastOk || 0) < 30000) return;
   const r = await chrome.runtime.sendMessage({ cmd: "syncNow", reason: "options-open" }).catch(() => null);
@@ -362,13 +474,13 @@ syncRender();
 })();
 
 /* ===================== 備份與轉移（加密檔） ===================== */
-const loadTombs = async () => (await chrome.storage.local.get("tombstones")).tombstones || [];
+const loadTombs = async () => (await AL_VAULT.store.get("tombstones")).tombstones || [];
 
 $("expGo").addEventListener("click", async () => {
   const data = { sites: await load(), tombstones: await loadTombs() };
 
   if ($("expCreds").checked) {
-    const { sync } = await chrome.storage.local.get("sync");
+    const { sync } = await AL_VAULT.store.get("sync");
     if (sync?.enabled && sync.token && sync.gistId && sync.dek) {
       // 同一組 PAT 在幾台機器上一起用沒問題，gist scope 本來就是讀+寫
       data.sync = { token: sync.token, gistId: sync.gistId, dek: sync.dek, salt: sync.salt || "" };
@@ -452,13 +564,13 @@ $("impApply").addEventListener("click", async () => {
   let ok = true;
   if (staged.missing.length) ok = await chrome.permissions.request({ origins: staged.missing }).catch(() => false);
 
-  await chrome.storage.local.set({
+  await AL_VAULT.store.set({
     sites: staged.merged.sites,
     tombstones: staged.merged.tombstones,
   });
 
   if (staged.data.sync) {
-    await chrome.storage.local.set({ sync: { enabled: true, ...staged.data.sync } });
+    await AL_VAULT.store.set({ sync: { enabled: true, ...staged.data.sync } });
     await chrome.runtime.sendMessage({ cmd: "syncNow", reason: "import" }).catch(() => {});
   }
   try { await chrome.runtime.sendMessage({ cmd: "sync" }); } catch {}
@@ -580,7 +692,7 @@ idRender();
 async function codeRender() {
   const bar = $("codeBar");
   const r = await chrome.runtime.sendMessage({ cmd: "codeCheck" }).catch(() => null);
-  const { sync = {} } = await chrome.storage.local.get("sync");
+  const { sync = {} } = await AL_VAULT.store.get("sync");
   const group = sync.groupVersion || "";
   const loaded = r?.loaded || "?";
 

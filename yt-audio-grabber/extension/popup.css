@@ -1,0 +1,39 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  width: 380px; margin: 0; padding: 12px;
+  font: 13px/1.45 -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+  background: #fff; color: #111;
+}
+@media (prefers-color-scheme: dark) { body { background: #17181a; color: #e8e8e8; } }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.brand { font-weight: 700; font-size: 14px; flex: 1; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #bbb; }
+.dot.ok { background: #1a7f37; } .dot.bad { background: #cf222e; }
+.row { display: flex; gap: 6px; margin-bottom: 8px; }
+input, select, button {
+  font: inherit; padding: 7px 9px; border-radius: 7px;
+  border: 1px solid rgba(128,128,128,.4); background: transparent; color: inherit;
+}
+input { flex: 1; }
+select { flex: 1; }
+button.primary { background: #c00; border-color: #c00; color: #fff; font-weight: 600; cursor: pointer; white-space: nowrap; }
+button.primary:hover { background: #a00; }
+.msg { font-size: 12px; min-height: 16px; color: #cf222e; margin-bottom: 4px; white-space: pre-wrap; }
+.jobs { max-height: 260px; overflow-y: auto; }
+.job { border-top: 1px solid rgba(128,128,128,.22); padding: 7px 0; }
+.job .t { display: flex; gap: 6px; align-items: baseline; }
+.job .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.job .pct { font-variant-numeric: tabular-nums; font-size: 11px; opacity: .8; }
+.bar { height: 4px; border-radius: 2px; background: rgba(128,128,128,.25); margin-top: 5px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: #c00; transition: width .3s; }
+.job.done .bar > i { background: #1a7f37; }
+.job.error .bar > i { background: #cf222e; width: 100% !important; }
+.meta { font-size: 11px; opacity: .65; margin-top: 3px; word-break: break-all; }
+.x { cursor: pointer; opacity: .55; font-size: 12px; }
+.x:hover { opacity: 1; }
+footer { display: flex; gap: 10px; align-items: center; margin-top: 10px; font-size: 11px; opacity: .75; }
+.out { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+footer a { color: inherit; }
+
+.ver { font-weight: 400; font-size: 11px; opacity: .55; }

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Classroom Wake",
+  "version": "1.0.0",
+  "description": "讓背景分頁的 Google Classroom 也能正常載入（自用）",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["https://classroom.google.com/*"],
+  "background": { "service_worker": "bg.js" },
+  "action": { "default_title": "Classroom Wake", "default_popup": "popup.html" },
+  "content_scripts": [
+    {
+      "matches": ["https://classroom.google.com/*"],
+      "js": ["wake.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://classroom.google.com/*"],
+      "js": ["ready.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

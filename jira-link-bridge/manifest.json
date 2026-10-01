@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Jira 內網跳板",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "把 jira.realtek.com 與 wiki.realtek.com 的連結改導到 chrome.a-fei.com，讓不在公司網路的裝置也點得開。",
   "icons": {
     "128": "icon-128.png"
   },
   "permissions": [
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "storage"
   ],
   "host_permissions": [
     "*://jira.realtek.com/*",
@@ -21,5 +22,23 @@
         "path": "rules.json"
       }
     ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "內網跳板",
+    "default_icon": {
+      "128": "icon-128.png"
+    }
+  },
+  "commands": {
+    "toggle-bridge": {
+      "suggested_key": {
+        "default": "Alt+Shift+J",
+        "mac": "Alt+Shift+J"
+      },
+      "description": "切換內網跳板開／關"
+    }
   }
 }

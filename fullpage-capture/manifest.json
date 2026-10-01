@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "整頁截圖 Full Page Capture",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "description": "捲動擷取整個網頁並拼接成一張完整圖片。可下載 PNG、存成 PDF、複製到剪貼簿。",
   "permissions": [
     "activeTab",

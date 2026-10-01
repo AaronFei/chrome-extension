@@ -3,6 +3,10 @@
 <title>Auto Login — 設定</title>
 <style>
   :root { color-scheme: light dark; }
+  /* 沒有這行的話 width:100% 的輸入框會再多出 padding + border，撐破卡片、在共用組那列互相疊住 */
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* display:flex 的元素（例如 .codebar）會蓋掉 hidden 屬性 */
+  .grid > *, .grp .row > * { min-width: 0; }
   body { max-width: 780px; margin: 0 auto; padding: 28px 20px 60px;
          font: 14px/1.65 -apple-system, "Noto Sans TC", system-ui, sans-serif;
          color: #111827; background: #fff; }
@@ -67,7 +71,25 @@
   .note { margin-top:26px; padding:13px 15px; background:#fffbeb; border:1px solid #fde68a;
           border-radius:10px; font-size:12.5px; color:#78350f; }
   .note b { color:#78350f; }
+  /* 共用帳密 */
+  .grps { margin-bottom:18px; border:1px solid #c7d2fe; background:#f5f7ff; border-radius:12px; padding:14px 17px; }
+  .grps h2 { font-size:15px; margin:0 0 2px; }
+  .grps .hint { color:#6b7280; font-size:12.5px; margin-bottom:10px; }
+  .grp { border-top:1px solid #e0e7ff; padding:11px 0 4px; }
+  .grp:first-of-type { border-top:0; }
+  .grp .gname { font-weight:600; }
+  .grp .mem { font-size:12px; color:#6b7280; margin:2px 0 8px; }
+  .grp .warn { color:#b45309; font-size:12px; }
+  .grp .row { display:grid; grid-template-columns: 1fr 1fr auto; gap:8px; align-items:center; }
+  .grp .done { color:#166534; font-size:12.5px; margin-top:6px; }
+  .sugg { font-size:12.5px; padding:9px 0 3px; border-top:1px dashed #c7d2fe; }
+  .sugg .row { display:flex; gap:8px; align-items:center; margin-top:6px; }
+  .sugg input { max-width:220px; }
+  .ghint { grid-column:2; font-size:11.5px; color:#4f46e5; margin-top:-3px; }
+  @media (max-width:560px) { .grp .row { grid-template-columns:1fr; } }
   @media (prefers-color-scheme: dark) {
+    .grps{background:#1e1b4b;border-color:#3730a3} .grp{border-color:#312e81} .sugg{border-color:#3730a3}
+    .ghint{color:#a5b4fc} .grp .warn{color:#fbbf24} .grp .done{color:#86efac}
     body{background:#0f172a;color:#e2e8f0} .card{border-color:#334155}
     input[type=text],input[type=password]{background:#1e293b;border-color:#475569;color:#e2e8f0}
     button{background:#1e293b;border-color:#475569;color:#e2e8f0}
@@ -82,6 +104,8 @@
 <div class="sub">要新增網站：開啟那個網站的登入頁，點瀏覽器右上角的 extension 圖示 →「設定這個網站」。<br>
 右上角的開關可以隨時把單一網站關掉（設定會留著，隨時再打開）。</div>
 <div id="codeBar" class="codebar" hidden></div>
+<div id="groups" class="grps" hidden></div>
+<datalist id="grpList"></datalist>
 <div id="bar" class="bar" hidden>
   <div id="count"></div>
   <div class="acts">
@@ -91,6 +115,18 @@
 </div>
 <div id="list"></div>
 <div class="sync">
+  <h2>本機加密（passkey）</h2>
+  <div class="hint">開啟後，帳密、PAT、同步金鑰在這台電腦的硬碟上<b>只剩密文</b>，
+    金鑰要靠 Touch ID / Windows Hello 才拿得到 —— 就算整個 Chrome profile 被木馬打包帶走也解不開。<br>
+    代價：每次開 Chrome 後，第一次用到時要按一次（遇到要登入的網站會出現「解鎖並登入」提示）。
+    解鎖期間資料在記憶體裡，<b>擋不住正在執行的木馬</b>。</div>
+  <div id="lockStat" class="stat">讀取中…</div>
+  <div class="btns">
+    <button class="pri" id="lockOn" hidden>用 passkey 開啟本機加密</button>
+    <button id="lockNowBtn" hidden>立即鎖定</button>
+    <button class="dgr" id="lockOff" hidden>關閉本機加密（改回明文）</button>
+  </div>
+
   <h2>雲端同步（GitHub Gist）</h2>
   <div class="hint">設定在離開瀏覽器前就用 <b>AES-256-GCM</b> 加密，金鑰是隨機產生的、只存在你的機器上。
     GitHub 只看得到一團密文，連你在哪些網站有帳號都看不到。</div>
@@ -227,4 +263,8 @@
 <script src="lib/crypto.js"></script>
 <script src="lib/identity.js"></script>
 <script src="lib/transfer.js"></script>
-<script src="options.js"></script>
+<script src="lib/groups.js"></script>
+<script src="lib/vault.js"></script>
+<script src="lib/passkey.js"></script>
+<!-- options.js 由 options-lock.js 決定要不要載入：鎖著的時候不跑，免得拿空資料當真 -->
+<script src="options-lock.js"></script>

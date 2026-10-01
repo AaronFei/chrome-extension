@@ -7,6 +7,41 @@ const say = (t) => { $("msg").hidden = false; $("msg").textContent = t; };
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const url = (() => { try { return new URL(tab.url); } catch { return null; } })();
 
+  // 鎖著的時候不管在哪個分頁都先講這件事，其他狀態都要解鎖後才看得到
+  if ((await AL_VAULT.state()) === "locked") {
+    $("host").textContent = url ? url.host : (tab?.url || "");
+    $("state").innerHTML = '<span class="badge need">🔒 已鎖定</span>';
+    $("learn").textContent = "用 Touch ID / Windows Hello 解鎖";
+    $("fill").textContent = "改用小視窗解鎖";
+    $("fill").hidden = true;
+    $("opts").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
+
+    // 直接在 popup 裡解鎖（像錢包 extension 那樣），不另外開視窗
+    const unlockHere = async () => {
+      $("learn").disabled = true;
+      say("等待 Touch ID / Windows Hello…");
+      try {
+        const lock = await AL_VAULT.lockConf();
+        const r = await AL_VAULT.unlock(await AL_PASSKEY.evaluate(lock.credId, lock.prfSalt));
+        say(`已解鎖（${r.count} 個網站）`);
+        // 這個分頁如果是卡在登入頁，background 會幫它重跑一次 content script
+        await chrome.runtime.sendMessage({ cmd: "unlocked", tabId: tab?.id }).catch(() => {});
+        setTimeout(() => location.reload(), 500);
+      } catch (e) {
+        $("learn").disabled = false;
+        say(e.name === "NotAllowedError" ? "取消了，或逾時。再按一次就好。" : (e.message || String(e)));
+        $("fill").hidden = false;   // 萬一這台的 popup 撐不住 WebAuthn，留一條退路
+      }
+    };
+    $("learn").onclick = unlockHere;
+    $("fill").onclick = async () => {
+      await chrome.runtime.sendMessage({ cmd: "openUnlock", tabId: tab?.id, reason: url ? url.host : "" });
+      window.close();
+    };
+    unlockHere();   // 打開 popup 本身就是使用者動作，直接跳 Touch ID
+    return;
+  }
+
   if (!url || !/^https?:$/.test(url.protocol)) {
     $("host").textContent = tab?.url || "(未知分頁)";
     $("state").innerHTML = '<span class="badge off">這個分頁不能設定</span>';
@@ -20,7 +55,7 @@ const say = (t) => { $("msg").hidden = false; $("msg").textContent = t; };
   const pattern = `*://${url.host}/*`;
   $("host").textContent = url.host;
 
-  const { sites = [] } = await chrome.storage.local.get("sites");
+  const { sites = [] } = await AL_VAULT.store.get("sites");
   const site = sites.find((s) => s.host?.toLowerCase() === url.host.toLowerCase());
   const granted = await chrome.permissions.contains({ origins: [pattern] });
 
@@ -72,7 +107,7 @@ const say = (t) => { $("msg").hidden = false; $("msg").textContent = t; };
       if (!ok) { say("沒有授權就沒辦法在這個網域自動登入。"); return; }
       await chrome.runtime.sendMessage({ cmd: "sync" });
       if (site && !granted) { say("已授權，重新整理這一頁就會生效。"); return; }
-      await inject(["lib/selector.js", "picker.js"]);
+      await inject(["lib/selector.js", "lib/groups.js", "picker.js"]);
       window.close();
     } catch (e) {
       // 授權對話框有時會把 popup 關掉，這時再點一次就會直接進入設定
@@ -87,9 +122,9 @@ const say = (t) => { $("msg").hidden = false; $("msg").textContent = t; };
       // permissions.request 必須在使用者手勢當下呼叫，所以排在其他 await 之前
       const ok = granted || await chrome.permissions.request({ origins: [pattern] }).catch(() => false);
       if (!ok) { say("沒有授權就沒辦法在這個網域自動登入。"); return; }
-      const { sites: cur = [] } = await chrome.storage.local.get("sites");
+      const { sites: cur = [] } = await AL_VAULT.store.get("sites");
       const j = cur.findIndex((s) => s.id === site.id);
-      if (j >= 0) { cur[j].enabled = true; await chrome.storage.local.set({ sites: cur }); }
+      if (j >= 0) { cur[j].enabled = true; await AL_VAULT.store.set({ sites: cur }); }
       try { await chrome.runtime.sendMessage({ cmd: "sync" }); } catch {}
       say("已啟用，重新整理這一頁就會生效。");
       return;
